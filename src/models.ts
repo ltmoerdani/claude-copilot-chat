@@ -28,6 +28,21 @@ export interface ClaudeModelInfo {
   readonly supportsThinking: boolean;
   /** Human-readable description for the picker tooltip. */
   readonly description: string;
+  /**
+   * max_tokens value that Claude Code CLI sends for this model.
+   * The Anthropic API enforces specific output limits per model — using a value
+   * that doesn't match what Claude Code sends can trigger 429 rate_limit_error.
+   * Values verified via ANTHROPIC_LOG=debug claude --print --model X.
+   */
+  readonly claudeCodeMaxTokens: number;
+  /**
+   * Thinking configuration that Claude Code CLI sends for this model.
+   * - "adaptive": { type: "adaptive", display: "omitted" } — for Opus 4.7+, Sonnet 5+
+   * - "enabled":  { type: "enabled", budget_tokens: max-1, display: "omitted" } — for Sonnet 4.x, Haiku 4.5
+   * - "none":     no thinking field — for models that don't support it
+   * Without the correct thinking type, the API returns 429 rate_limit_error.
+   */
+  readonly claudeCodeThinking: "adaptive" | "enabled" | "none";
 }
 
 /**
@@ -57,6 +72,8 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     supportsToolCalling: true,
     supportsThinking: false,
     description: "Latest frontier model for complex agentic coding and enterprise work. Requires Max plan.",
+    claudeCodeMaxTokens: 64_000,
+    claudeCodeThinking: "adaptive",
   },
   {
     id: "claude-opus-4-7",
@@ -69,6 +86,8 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     supportsToolCalling: true,
     supportsThinking: false,
     description: "Frontier intelligence for long-running agents and coding. Requires Max plan.",
+    claudeCodeMaxTokens: 64_000,
+    claudeCodeThinking: "adaptive",
   },
   {
     id: "claude-opus-4-6",
@@ -81,6 +100,8 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     supportsToolCalling: true,
     supportsThinking: true,
     description: "Frontier intelligence with extended thinking. Requires Max plan.",
+    claudeCodeMaxTokens: 64_000,
+    claudeCodeThinking: "enabled",
   },
   {
     id: "claude-sonnet-5",
@@ -93,6 +114,8 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     supportsToolCalling: true,
     supportsThinking: false,
     description: "Best combination of speed and intelligence. Available on Pro.",
+    claudeCodeMaxTokens: 64_000,
+    claudeCodeThinking: "adaptive",
   },
   {
     id: "claude-sonnet-4-6",
@@ -105,6 +128,8 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     supportsToolCalling: true,
     supportsThinking: true,
     description: "High-performance model with extended thinking. Available on Pro.",
+    claudeCodeMaxTokens: 32_000,
+    claudeCodeThinking: "enabled",
   },
   {
     id: "claude-sonnet-4-5",
@@ -117,6 +142,8 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     supportsToolCalling: true,
     supportsThinking: true,
     description: "Fast and intelligent model with extended thinking. Available on Pro.",
+    claudeCodeMaxTokens: 32_000,
+    claudeCodeThinking: "enabled",
   },
   {
     id: "claude-haiku-4-5",
@@ -127,8 +154,11 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
     maxOutputTokens: 64_000,
     supportsVision: true,
     supportsToolCalling: true,
-    supportsThinking: true,
     description: "Fastest model with near-frontier intelligence. Available on Pro.",
+    claudeCodeMaxTokens: 32_000,
+    // Haiku 4.5 uses enabled thinking with budget (verified via Claude Code CLI).
+    supportsThinking: true,
+    claudeCodeThinking: "enabled",
   },
 ];
 

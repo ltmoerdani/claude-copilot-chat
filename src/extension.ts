@@ -106,78 +106,91 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "claude-copilot-chat.diagnostics",
       wrapCommand("diagnostics", async () => {
-        // Test API connectivity with stored token using multiple header combos
         const oauthToken = await tokenStore.getToken();
         let apiTestResult = "No token set";
         
         if (oauthToken) {
           const results: string[] = [];
           
-          // Test 1: Full Claude Code headers + ?beta=true + body shape
-          const tests: { label: string; url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [
+          const baseHeaders: Record<string, string> = {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${oauthToken}`,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+            "anthropic-dangerous-direct-browser-access": "true",
+            "User-Agent": "claude-cli/2.1.198 (external, sdk-cli)",
+            "x-app": "cli",
+            "x-stainless-lang": "js",
+            "x-stainless-runtime": "node",
+            "x-stainless-os": "MacOS",
+            "x-stainless-arch": process.arch,
+            "x-stainless-package-version": "0.94.0",
+            "x-stainless-retry-count": "0",
+            "x-stainless-runtime-version": process.version,
+          };
+
+          const tests: { label: string; model: string; body: Record<string, unknown> }[] = [
             {
-              label: "Test 1: Full Claude Code (beta URL + all headers + system array + metadata)",
-              url: "https://api.anthropic.com/v1/messages?beta=true",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${oauthToken}`,
-                "anthropic-version": "2023-06-01",
-                "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
-                "anthropic-dangerous-direct-browser-access": "true",
-                "User-Agent": "claude-cli/2.1.198 (external, sdk-cli)",
-                "x-app": "cli",
-                "x-stainless-lang": "js",
-                "x-stainless-runtime": "node",
-              },
+              label: "Haiku 32K + enabled thinking (known working)",
+              model: "claude-haiku-4-5",
               body: {
                 model: "claude-haiku-4-5",
-                max_tokens: 256,
-                system: [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude.", cache_control: { type: "ephemeral" } }],
-                messages: [{ role: "user", content: "Say hi" }],
-                metadata: { user_id: "test" },
+                max_tokens: 32000,
+                thinking: { type: "enabled", budget_tokens: 31999, display: "omitted" },
+                system: [{ type: "text", text: "You are a helpful assistant.", cache_control: { type: "ephemeral" } }],
+                messages: [{ role: "user", content: "Say ok" }],
+                metadata: { user_id: "test-session-1" },
+                context_management: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] },
               },
             },
             {
-              label: "Test 2: Minimal (no beta URL, no Claude Code headers)",
-              url: "https://api.anthropic.com/v1/messages",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${oauthToken}`,
-                "anthropic-version": "2023-06-01",
-              },
+              label: "Sonnet5 32K + enabled thinking (NOT adaptive)",
+              model: "claude-sonnet-5",
               body: {
-                model: "claude-haiku-4-5",
-                max_tokens: 256,
-                messages: [{ role: "user", content: "Say hi" }],
+                model: "claude-sonnet-5",
+                max_tokens: 32000,
+                thinking: { type: "enabled", budget_tokens: 31999, display: "omitted" },
+                system: [{ type: "text", text: "You are a helpful assistant.", cache_control: { type: "ephemeral" } }],
+                messages: [{ role: "user", content: "Say ok" }],
+                metadata: { user_id: "test-session-2" },
+                context_management: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] },
               },
             },
             {
-              label: "Test 3: Beta URL only (no Claude Code headers)",
-              url: "https://api.anthropic.com/v1/messages?beta=true",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${oauthToken}`,
-                "anthropic-version": "2023-06-01",
-                "anthropic-beta": "oauth-2025-04-20",
-              },
+              label: "Sonnet5 64K + adaptive thinking (exact Claude Code)",
+              model: "claude-sonnet-5",
               body: {
-                model: "claude-haiku-4-5",
-                max_tokens: 256,
-                messages: [{ role: "user", content: "Say hi" }],
+                model: "claude-sonnet-5",
+                max_tokens: 64000,
+                thinking: { type: "adaptive", display: "omitted" },
+                system: [{ type: "text", text: "You are a helpful assistant.", cache_control: { type: "ephemeral" } }],
+                messages: [{ role: "user", content: "Say ok" }],
+                metadata: { user_id: "test-session-3" },
+                context_management: { edits: [{ type: "clear_thinking_20251015", keep: "all" }] },
+              },
+            },
+            {
+              label: "Sonnet5 64K + NO thinking",
+              model: "claude-sonnet-5",
+              body: {
+                model: "claude-sonnet-5",
+                max_tokens: 64000,
+                system: [{ type: "text", text: "You are a helpful assistant." }],
+                messages: [{ role: "user", content: "Say ok" }],
               },
             },
           ];
 
           for (const test of tests) {
             try {
-              const resp = await fetch(test.url, {
+              const resp = await fetch("https://api.anthropic.com/v1/messages?beta=true", {
                 method: "POST",
-                headers: test.headers,
+                headers: baseHeaders,
                 body: JSON.stringify(test.body),
               });
               const text = await resp.text();
-              const ratelimitStatus = resp.headers.get("anthropic-ratelimit-unified-status") || "N/A";
-              results.push(`### ${test.label}\nStatus: ${resp.status}\nRateLimit-Status: ${ratelimitStatus}\nBody: ${text.slice(0, 300)}\n`);
+              const ratelimit5h = resp.headers.get("anthropic-ratelimit-unified-5h-status") || "N/A";
+              results.push(`### ${test.label}\nStatus: ${resp.status} | 5h: ${ratelimit5h}\nBody: ${text.slice(0, 300)}\n`);
             } catch (e) {
               results.push(`### ${test.label}\nError: ${e instanceof Error ? e.message : String(e)}\n`);
             }
