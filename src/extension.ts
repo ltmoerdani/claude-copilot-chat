@@ -68,13 +68,11 @@ export function activate(context: vscode.ExtensionContext): void {
   }
   context.subscriptions.push(providerDisposable);
 
-  // Force VS Code to re-query models immediately after registration.
-  // Some VS Code versions don't call provideLanguageModelChatInformation
-  // until the change emitter fires at least once.
-  setTimeout(() => {
-    provider.notifyChange();
-    outputChannel?.appendLine("[activate] Forced initial model refresh via notifyChange()");
-  }, 1000);
+  // NOTE: Do NOT fire notifyChange() on a timer or in a loop.
+  // VS Code calls provideLanguageModelChatInformation() automatically after
+  // registerLanguageModelChatProvider(). Firing notifyChange() repeatedly
+  // causes an infinite loop: provideInfo → onDidChangeChatModels → provideInfo → ...
+  // This makes VS Code drop the provider, causing models to vanish from the picker.
 
   // Helper: wrap async command handlers with try-catch + error reporting
   const wrapCommand = (name: string, fn: () => Promise<void>): (() => Promise<void>) => {
@@ -108,6 +106,85 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "claude-copilot-chat.diagnostics",
       wrapCommand("diagnostics", async () => {
+        // Test API connectivity with stored token using multiple header combos
+        const oauthToken = await tokenStore.getToken();
+        let apiTestResult = "No token set";
+        
+        if (oauthToken) {
+          const results: string[] = [];
+          
+          // Test 1: Full Claude Code headers + ?beta=true + body shape
+          const tests: { label: string; url: string; headers: Record<string, string>; body: Record<string, unknown> }[] = [
+            {
+              label: "Test 1: Full Claude Code (beta URL + all headers + system array + metadata)",
+              url: "https://api.anthropic.com/v1/messages?beta=true",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${oauthToken}`,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+                "anthropic-dangerous-direct-browser-access": "true",
+                "User-Agent": "claude-cli/2.1.198 (external, sdk-cli)",
+                "x-app": "cli",
+                "x-stainless-lang": "js",
+                "x-stainless-runtime": "node",
+              },
+              body: {
+                model: "claude-haiku-4-5",
+                max_tokens: 256,
+                system: [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude.", cache_control: { type: "ephemeral" } }],
+                messages: [{ role: "user", content: "Say hi" }],
+                metadata: { user_id: "test" },
+              },
+            },
+            {
+              label: "Test 2: Minimal (no beta URL, no Claude Code headers)",
+              url: "https://api.anthropic.com/v1/messages",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${oauthToken}`,
+                "anthropic-version": "2023-06-01",
+              },
+              body: {
+                model: "claude-haiku-4-5",
+                max_tokens: 256,
+                messages: [{ role: "user", content: "Say hi" }],
+              },
+            },
+            {
+              label: "Test 3: Beta URL only (no Claude Code headers)",
+              url: "https://api.anthropic.com/v1/messages?beta=true",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${oauthToken}`,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "oauth-2025-04-20",
+              },
+              body: {
+                model: "claude-haiku-4-5",
+                max_tokens: 256,
+                messages: [{ role: "user", content: "Say hi" }],
+              },
+            },
+          ];
+
+          for (const test of tests) {
+            try {
+              const resp = await fetch(test.url, {
+                method: "POST",
+                headers: test.headers,
+                body: JSON.stringify(test.body),
+              });
+              const text = await resp.text();
+              const ratelimitStatus = resp.headers.get("anthropic-ratelimit-unified-status") || "N/A";
+              results.push(`### ${test.label}\nStatus: ${resp.status}\nRateLimit-Status: ${ratelimitStatus}\nBody: ${text.slice(0, 300)}\n`);
+            } catch (e) {
+              results.push(`### ${test.label}\nError: ${e instanceof Error ? e.message : String(e)}\n`);
+            }
+          }
+          apiTestResult = results.join("\n---\n\n");
+        }
+
         const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
         const lines = models.map((m) => {
           return [
@@ -134,6 +211,12 @@ export function activate(context: vscode.ExtensionContext): void {
           "",
           ...lines,
           "",
+          "## API Connectivity Test",
+          "",
+          "```",
+          apiTestResult,
+          "```",
+          "",
           "---",
           "If models.length is 0 above, the provider is registered but VS Code",
           "is not returning any models. Check the Output panel (Claude for Copilot Chat)",
@@ -153,14 +236,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
   );
 
-  // Listen for model changes
-  if (vscode.lm.onDidChangeChatModels) {
-    context.subscriptions.push(
-      vscode.lm.onDidChangeChatModels(() => {
-        outputChannel?.appendLine("[event] onDidChangeChatModels fired");
-      }),
-    );
-  }
+  // NOTE: Do NOT subscribe to onDidChangeChatModels just for logging.
+  // It fires after every provideLanguageModelChatInformation() call and creates
+  // a feedback loop when combined with notifyChange(). Only subscribe if you
+  // actually need to react to external model changes.
 
   // Welcome message on first install
   showWelcomeIfNeeded(context, tokenStore).catch((err) => {

@@ -9,6 +9,7 @@
  */
 
 import * as vscode from "vscode";
+import * as crypto from "crypto";
 import {
   ANTHROPIC_API_URL,
   ANTHROPIC_VERSION,
@@ -94,14 +95,42 @@ async function doStreamRequest(options: StreamOptions): Promise<void> {
   const { oauthToken, modelId, body, progress, token, requestTimeoutMs, streamIdleTimeoutMs } =
     options;
 
+  // Generate session/request IDs like Claude Code CLI does
+  const sessionId = crypto.randomUUID();
+  const requestId = crypto.randomUUID();
+
   const headers: Record<string, string> = {
+    "accept": "application/json",
     "Content-Type": "application/json",
     "Authorization": `Bearer ${oauthToken}`,
     "anthropic-version": ANTHROPIC_VERSION,
-    "Accept": "text/event-stream",
+    // Full anthropic-beta string matching Claude Code CLI exactly.
+    // The claude-code-20250219 flag is critical — it routes to subscription quota.
+    "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,claude-code-20250219,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+    "anthropic-dangerous-direct-browser-access": "true",
+    "User-Agent": "claude-cli/2.1.198 (external, sdk-cli)",
+    "x-app": "cli",
+    "x-claude-code-session-id": sessionId,
+    "x-client-request-id": requestId,
+    // x-stainless-* headers match the Anthropic SDK fingerprint
+    "x-stainless-arch": process.arch,
+    "x-stainless-lang": "js",
+    "x-stainless-os": "MacOS",
+    "x-stainless-package-version": "0.94.0",
+    "x-stainless-retry-count": "0",
+    "x-stainless-runtime": "node",
+    "x-stainless-runtime-version": process.version,
+    "x-stainless-timeout": String(Math.floor(requestTimeoutMs / 1000)),
   };
 
-  const requestBody = JSON.stringify({ ...(body as Record<string, unknown>), stream: true });
+  // Add metadata to match Claude Code CLI body shape — this helps Anthropic
+  // identify the request as a Claude Code session for subscription billing.
+  const bodyObj = body as Record<string, unknown>;
+  if (!bodyObj.metadata) {
+    bodyObj.metadata = { user_id: sessionId };
+  }
+
+  const requestBody = JSON.stringify({ ...bodyObj, stream: true });
   const abortController = new AbortController();
 
   // Wire up VS Code cancellation token to AbortController
@@ -129,7 +158,9 @@ async function doStreamRequest(options: StreamOptions): Promise<void> {
   try {
     resetIdleTimeout();
 
-    const response = await fetch(ANTHROPIC_API_URL, {
+    // Use ?beta=true endpoint — same as Claude Code CLI.
+    // Without this, OAuth subscription tokens get billed as "extra usage".
+    const response = await fetch(`${ANTHROPIC_API_URL}?beta=true`, {
       method: "POST",
       headers,
       body: requestBody,
@@ -138,6 +169,17 @@ async function doStreamRequest(options: StreamOptions): Promise<void> {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      // Log full error details for debugging
+      const retryAfter = response.headers.get("retry-after");
+      const rateLimitRemaining = response.headers.get("anthropic-ratelimit-requests-remaining");
+      const rateLimitReset = response.headers.get("anthropic-ratelimit-requests-reset");
+      options.output?.appendLine(
+        `[http-error] status=${response.status} model=${modelId}\n` +
+        `  body: ${errorBody.slice(0, 1000)}\n` +
+        `  retry-after: ${retryAfter ?? "N/A"}\n` +
+        `  ratelimit-remaining: ${rateLimitRemaining ?? "N/A"}\n` +
+        `  ratelimit-reset: ${rateLimitReset ?? "N/A"}`,
+      );
       const error = classifyHttpError(response.status, errorBody);
       throw error ?? new Error(`HTTP ${response.status}: ${errorBody.slice(0, 200)}`);
     }

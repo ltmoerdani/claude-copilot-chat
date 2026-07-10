@@ -2,7 +2,7 @@
   "name": "claude-copilot-chat",
   "displayName": "Claude for Copilot Chat — Use Your Subscription",
   "description": "Use Claude Pro/Max subscription models (Opus, Sonnet, Haiku) in GitHub Copilot Chat. Login-based, no API key needed.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "ltmoerdani",
   "license": "MIT",
   "icon": "media/claude.png",
@@ -41,7 +41,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onLanguageModelChatProvider:anthropic"
+    "onLanguageModelChatProvider:claude-sub"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -74,7 +74,7 @@
     ],
     "languageModelChatProviders": [
       {
-        "vendor": "anthropic",
+        "vendor": "claude-sub",
         "displayName": "Claude (Subscription)",
         "configuration": {
           "type": "object",

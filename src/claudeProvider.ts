@@ -76,14 +76,14 @@ export class ClaudeLanguageModelChatProvider
     progress: vscode.Progress<unknown>,
     token: vscode.CancellationToken,
   ): Promise<void> {
+    this.output?.appendLine(
+      `[request-start] model=${model.id} family=${model.family} — handling via Claude Subscription provider`,
+    );
+
     const modelInfo = CLAUDE_MODELS.find((m) => m.id === model.id);
     if (!modelInfo) {
       throw new Error(`Unknown model: ${model.id}`);
     }
-
-    this.output?.appendLine(
-      `[request-start] model=${model.id} — resolving token`,
-    );
 
     // Resolve OAuth token
     const oauthToken = await this.auth.resolveToken();
@@ -98,22 +98,44 @@ export class ClaudeLanguageModelChatProvider
     // Translate messages to Anthropic format
     const { body, systemPrompt } = translateMessages(messages, modelInfo, options);
 
-    // Merge tools from Copilot Chat options (Agent Mode)
-    const tools = translateTools(options.tools);
+    // Merge tools from Copilot Chat options (Agent Mode).
+    // Cap at 20 tools to avoid massive input token costs that drain "extra usage".
+    // Copilot sends 99 tools by default — most are rarely used.
+    const allTools = translateTools(options.tools);
+    const tools = allTools.slice(0, 20);
 
-    // Determine max_tokens: use the model's hard cap.
-    // VS Code may also pass options.maxOutputTokens — clamp to model limit.
-    const maxTokens = modelInfo.maxOutputTokens;
+    // Determine max_tokens — cap at 32000 to match Claude Code CLI behavior.
+    const maxTokens = Math.min(modelInfo.maxOutputTokens, 32_000);
+
+    // Build system prompt with cache_control for prompt caching.
+    // This makes the system prompt + tools cached (90% cheaper on subsequent requests).
+    const systemBlocks: unknown[] = [];
+    if (systemPrompt.system) {
+      systemBlocks.push({
+        type: "text",
+        text: systemPrompt.system,
+        cache_control: { type: "ephemeral" },
+      });
+    }
 
     const requestBody: Record<string, unknown> = {
       model: modelInfo.id,
       max_tokens: maxTokens,
       messages: body,
-      ...systemPrompt,
     };
 
+    if (systemBlocks.length > 0) {
+      requestBody.system = systemBlocks;
+    }
+
     if (tools.length > 0) {
-      requestBody.tools = tools;
+      // Also cache the last tool definition to cache the entire tools array
+      const cachedTools = tools.map((t, i) =>
+        i === tools.length - 1
+          ? { ...t, cache_control: { type: "ephemeral" } }
+          : t,
+      );
+      requestBody.tools = cachedTools;
     }
 
     // Read timeouts from settings
@@ -122,7 +144,7 @@ export class ClaudeLanguageModelChatProvider
     const streamIdleTimeoutMs = config2.get<number>("streamIdleTimeoutMs", 180_000);
 
     this.output?.appendLine(
-      `[request] model=${modelInfo.id} messages=${body.length} tools=${tools.length} max_tokens=${maxTokens}`,
+      `[request] model=${modelInfo.id} messages=${body.length} tools=${tools.length}/${allTools.length} max_tokens=${maxTokens}`,
     );
 
     await streamAnthropicMessages({

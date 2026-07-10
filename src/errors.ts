@@ -72,12 +72,15 @@ export function classifyHttpError(
       // Try to extract retry-after from common header formats
       const retryMatch = bodyText.match(/retry[_-]after["']?\s*[:=]\s*["']?(\d+)/i);
       const retryAfterSec = retryMatch ? parseInt(retryMatch[1], 10) : undefined;
+      // Extract the actual error type from API response
+      const typeMatch = bodyText.match(/"type"\s*:\s*"([^"]+)"/);
+      const errorType = typeMatch ? typeMatch[1] : "rate_limit_error";
       return new RateLimitError(
-        `Claude subscription rate limit reached. ${
+        `Claude API returned 429 (${errorType}). ${
           retryAfterSec
             ? `Resets in ~${Math.ceil(retryAfterSec / 60)} minutes.`
-            : "Please wait for the reset window (5h / weekly / monthly depending on plan)."
-        }`,
+            : "This may be a subscription rate limit (5h / weekly / monthly) or an API-level limit."
+        }\n\nAPI response: ${bodySnippet}`,
         retryAfterSec ? retryAfterSec * 1000 : undefined,
       );
     }

@@ -132,8 +132,14 @@ export const CLAUDE_MODELS: readonly ClaudeModelInfo[] = [
   },
 ];
 
-/** Vendor ID — must match package.json contributes.languageModelChatProviders[].vendor. */
-export const VENDOR_ID = "anthropic" as const;
+/**
+ * Vendor ID — must match package.json contributes.languageModelChatProviders[].vendor.
+ *
+ * IMPORTANT: Do NOT use "anthropic" — that vendor is used by VS Code's built-in
+ * Copilot Chat for its own Claude model routing. Using it causes conflicts where
+ * Copilot intercepts requests meant for our provider.
+ */
+export const VENDOR_ID = "claude-sub" as const;
 
 /** Anthropic API endpoint for the Messages API. */
 export const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages" as const;
