@@ -1,0 +1,129 @@
+{
+  "name": "claude-copilot-chat",
+  "displayName": "Claude for Copilot Chat — Use Your Subscription",
+  "description": "Use Claude Pro/Max subscription models (Opus, Sonnet, Haiku) in GitHub Copilot Chat. Login-based, no API key needed.",
+  "version": "0.1.0",
+  "publisher": "ltmoerdani",
+  "license": "MIT",
+  "icon": "media/claude.png",
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
+  "keywords": [
+    "anthropic",
+    "anthropic",
+    "copilot",
+    "copilot-chat",
+    "subscription",
+    "pro",
+    "max",
+    "ai",
+    "language-model",
+    "agent",
+    "claude-code"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ltmoerdani/claude-copilot-chat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ltmoerdani/claude-copilot-chat/issues"
+  },
+  "homepage": "https://github.com/ltmoerdani/claude-copilot-chat#readme",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Machine Learning",
+    "Education",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguageModelChatProvider:anthropic"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claude-copilot-chat.login",
+        "title": "Claude: Set Login Token",
+        "category": "Claude"
+      },
+      {
+        "command": "claude-copilot-chat.logout",
+        "title": "Claude: Clear Token",
+        "category": "Claude"
+      },
+      {
+        "command": "claude-copilot-chat.status",
+        "title": "Claude: Status",
+        "category": "Claude"
+      },
+      {
+        "command": "claude-copilot-chat.diagnostics",
+        "title": "Claude: Diagnostics",
+        "category": "Claude"
+      },
+      {
+        "command": "claude-copilot-chat.refreshModels",
+        "title": "Claude: Refresh Models",
+        "category": "Claude"
+      }
+    ],
+    "languageModelChatProviders": [
+      {
+        "vendor": "anthropic",
+        "displayName": "Claude (Subscription)",
+        "configuration": {
+          "type": "object",
+          "properties": {
+            "oauthToken": {
+              "type": "string",
+              "title": "Claude Subscription Token",
+              "description": "OAuth token from `claude setup-token`. Requires Claude Pro, Max, Team, or Enterprise.",
+              "secret": true
+            }
+          }
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Claude for Copilot Chat",
+      "properties": {
+        "claude.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug logging to the output channel."
+        },
+        "claude.requestTimeoutMs": {
+          "type": "number",
+          "default": 600000,
+          "description": "Request timeout in milliseconds (default: 10 minutes).",
+          "minimum": 10000,
+          "maximum": 2147483647
+        },
+        "claude.streamIdleTimeoutMs": {
+          "type": "number",
+          "default": 180000,
+          "description": "Stream idle timeout in milliseconds — abort if no bytes for this long (default: 3 minutes).",
+          "minimum": 60000
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "prepackage": "npm run compile",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.125.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^5.7.0"
+  }
+}
